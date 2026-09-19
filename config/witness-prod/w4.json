@@ -1,0 +1,6 @@
+{
+    "w4": {
+        "curls": ["tcp://witness-4:5643/", "http://witness-4:5642/"]
+    },
+    "iurls": []
+}

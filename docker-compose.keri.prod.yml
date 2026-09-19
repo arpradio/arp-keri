@@ -1,0 +1,161 @@
+## KERI production stack: KERIA agent + 6 independently-keyed witnesses.
+##
+## Standalone file, not a `-f base -f prod` overlay on docker-compose.keri.yml:
+## Compose merges list-type keys (`ports`, `volumes`) across `-f` layers by
+## concatenation, not replacement, so an overlay can't actually remove the
+## dev file's host-published debug ports — the two files would need to
+## disagree on whether KERIA/witnesses are publicly reachable, and
+## concatenation always wins toward "published." Standalone avoids that trap.
+##
+## Run: docker compose -f infra/docker-compose.keri.prod.yml up -d
+##
+## First run only: bootstrap TLS certs before `up` (see
+## infra/nginx/init-letsencrypt.sh and infra/README.md) — nginx's HTTPS
+## server blocks won't start without certs already present in the
+## certbot-conf volume.
+##
+## Requires, in the environment docker compose reads (.env or the shell):
+##   WITNESS_W1_BRAN .. WITNESS_W6_BRAN   (scripts/generate-keri-witness-keys.ts)
+##   LETSENCRYPT_EMAIL                    (used only by init-letsencrypt.sh)
+##
+## Only nginx publishes to the host (80, 443). KERIA and the witnesses are
+## reached only over the Docker-internal network this compose file creates
+## — nginx reaches `keria` by its Compose service name, and KERIA reaches
+## witnesses the same way. See infra/README.md for the full picture.
+
+x-healthcheck: &healthcheck
+    interval: 2s
+    timeout: 3s
+    retries: 5
+    start_period: 2s
+
+x-python-env: &python-env
+    PYTHONUNBUFFERED: 1
+    PYTHONIOENCODING: UTF-8
+
+x-witness: &witness
+    image: ${KERI_IMAGE:-weboftrust/keri}:${KERI_IMAGE_TAG:-1.2.13}
+    environment:
+        <<: *python-env
+    restart: unless-stopped
+
+services:
+    keria:
+        image: ${KERIA_IMAGE:-weboftrust/keria}:${KERIA_IMAGE_TAG:-0.4.0}
+        environment:
+            KERI_AGENT_CORS: 1
+            <<: *python-env
+        volumes:
+            - ./config/keria.prod.json:/keria/config/keri/cf/keria.json
+            - keria-data:/usr/local/var/keri
+        command: start --config-dir /keria/config --config-file keria --name keria
+        healthcheck:
+            test: wget --spider http://keria:3902/spec.yaml
+            <<: *healthcheck
+        restart: unless-stopped
+        # No ports: published — reached only via the reverse proxy (see
+        # infra/nginx/keria.conf) or, for the app server's own calls, over
+        # this same Docker network if it shares one with the Next.js server.
+
+    nginx:
+        image: nginx:alpine
+        depends_on:
+            - keria
+        volumes:
+            - ./nginx/keria.conf:/etc/nginx/conf.d/keria.conf:ro
+            - certbot-conf:/etc/letsencrypt:ro
+            - certbot-www:/var/www/certbot:ro
+        ports:
+            - '80:80'
+            - '443:443'
+        restart: unless-stopped
+        # certbot (below) can't reach into this container to trigger a
+        # reload after a renewal without a docker.sock mount, which isn't
+        # worth the added attack surface here — instead this reloads on its
+        # own schedule regardless of whether a cert actually renewed. A
+        # reload is cheap and drops no in-flight connections; worst case a
+        # renewed cert takes up to 6h to actually take effect.
+        command: /bin/sh -c "while :; do sleep 6h & wait $$!; nginx -s reload; done & nginx -g 'daemon off;'"
+
+    certbot:
+        image: certbot/certbot
+        volumes:
+            - certbot-conf:/etc/letsencrypt
+            - certbot-www:/var/www/certbot
+        # Renewal check twice a day (certbot only actually renews inside the
+        # last 30 days of a cert's life). First-issuance is a one-time
+        # manual step — see infra/nginx/init-letsencrypt.sh — not done here,
+        # since it needs nginx already up and serving the ACME challenge path.
+        entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $$!; done"
+        restart: unless-stopped
+
+    witness-1:
+        <<: *witness
+        command: witness start --alias w1 --passcode ${WITNESS_W1_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w1 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w1.json:/config/main/w1.json
+            - witness1-data:/usr/local/var/keri
+
+    witness-2:
+        <<: *witness
+        command: witness start --alias w2 --passcode ${WITNESS_W2_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w2 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w2.json:/config/main/w2.json
+            - witness2-data:/usr/local/var/keri
+
+    witness-3:
+        <<: *witness
+        command: witness start --alias w3 --passcode ${WITNESS_W3_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w3 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w3.json:/config/main/w3.json
+            - witness3-data:/usr/local/var/keri
+
+    witness-4:
+        <<: *witness
+        command: witness start --alias w4 --passcode ${WITNESS_W4_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w4 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w4.json:/config/main/w4.json
+            - witness4-data:/usr/local/var/keri
+
+    witness-5:
+        <<: *witness
+        command: witness start --alias w5 --passcode ${WITNESS_W5_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w5 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w5.json:/config/main/w5.json
+            - witness5-data:/usr/local/var/keri
+
+    witness-6:
+        <<: *witness
+        command: witness start --alias w6 --passcode ${WITNESS_W6_BRAN} --http 5642 --tcp 5643 --config-dir /config --config-file w6 --no-prompt
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-prod/w6.json:/config/main/w6.json
+            - witness6-data:/usr/local/var/keri
+
+volumes:
+    keria-data:
+    certbot-conf:
+    certbot-www:
+    witness1-data:
+    witness2-data:
+    witness3-data:
+    witness4-data:
+    witness5-data:
+    witness6-data:

@@ -1,0 +1,71 @@
+## KERI local dev / Phase 0 spike stack: KERIA agent + a witness pool.
+##
+## THIS IS A DEVELOPMENT-ONLY CONFIGURATION. The witness pool below uses
+## keripy's public "witness demo" identities (wan/wes/wil/wit/wub/wyz) —
+## their signing keys are published in the open-source keripy repo and are
+## known to anyone. They provide zero real duplicity protection. Production
+## deployment MUST generate fresh, secret witness keys (see infra/README.md)
+## before any real user identity is incepted against this pool.
+##
+## Mirrors the exact image versions and config layout that signify-ts's own
+## CI uses (github.com/WebOfTrust/signify-ts/docker-compose.yaml), so the
+## pinned KERIA (0.4.0) / signify-ts (0.4.0) / witness (1.2.13) versions in
+## this repo are the same combination WebOfTrust tests against.
+
+x-healthcheck: &healthcheck
+    interval: 2s
+    timeout: 3s
+    retries: 5
+    start_period: 2s
+
+x-python-env: &python-env
+    PYTHONUNBUFFERED: 1
+    PYTHONIOENCODING: UTF-8
+
+services:
+    keria:
+        image: ${KERIA_IMAGE:-weboftrust/keria}:${KERIA_IMAGE_TAG:-0.4.0}
+        environment:
+            KERI_AGENT_CORS: 1
+            <<: *python-env
+        volumes:
+            - ./config/keria.json:/keria/config/keri/cf/keria.json
+        command: start --config-dir /keria/config --config-file keria --name keria
+        healthcheck:
+            test: wget --spider http://keria:3902/spec.yaml
+            <<: *healthcheck
+        ports:
+            - '3901:3901' # boot interface (KERIA_BOOT_URL)
+            - '3902:3902' # message router / mailbox (KERIA_HTTP_URL)
+            - '3903:3903' # admin interface (KERIA_ADMIN_URL)
+        # Persistent state: mount a named volume in production so KERIA's
+        # LMDB-backed key state / relayed-message store survives a restart.
+        # Omitted here for the dev spike (ephemeral container storage is
+        # fine while iterating); add before anyone incepts a real AID here.
+
+    witness-demo:
+        image: ${KERI_IMAGE:-weboftrust/keri}:${KERI_IMAGE_TAG:-1.2.13}
+        environment:
+            <<: *python-env
+        command: witness demo
+        healthcheck:
+            test: wget --spider http://127.0.0.1:5642/oobi
+            <<: *healthcheck
+        volumes:
+            - ./config/witness-demo:/keripy/scripts/keri/cf/main
+            # Same production caveat as keria: add a named volume for durable
+            # witness state before this pool receipts anything real. A witness
+            # that loses its history and later contradicts a prior receipt is
+            # exactly the duplicity condition TOAD exists to catch.
+        ports:
+            - '5642:5642' # wan
+            - '5643:5643' # wil
+            - '5644:5644' # wes
+            - '5645:5645' # wit
+            - '5646:5646' # wub
+            - '5647:5647' # wyz
+            # All 6 demo witnesses run inside this one container/process and
+            # are reachable from `keria` over the compose network regardless
+            # of which ports are published to the host; all 6 are published
+            # here purely so a host-side spike script can also reach them
+            # directly for debugging.

@@ -1,0 +1,6 @@
+{
+    "w5": {
+        "curls": ["tcp://witness-5:5643/", "http://witness-5:5642/"]
+    },
+    "iurls": []
+}

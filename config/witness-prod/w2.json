@@ -1,0 +1,6 @@
+{
+    "w2": {
+        "curls": ["tcp://witness-2:5643/", "http://witness-2:5642/"]
+    },
+    "iurls": []
+}
