@@ -9,19 +9,18 @@
 ##
 ## Run: docker compose -f infra/docker-compose.keri.prod.yml up -d
 ##
-## First run only: bootstrap TLS certs before `up` (see
-## infra/nginx/init-letsencrypt.sh and infra/README.md) — nginx's HTTPS
-## server blocks won't start without certs already present in the
-## certbot-conf volume.
-##
 ## Requires, in the environment docker compose reads (.env or the shell):
 ##   WITNESS_W1_BRAN .. WITNESS_W6_BRAN   (scripts/generate-keri-witness-keys.ts)
-##   LETSENCRYPT_EMAIL                    (used only by init-letsencrypt.sh)
 ##
-## Only nginx publishes to the host (80, 443). KERIA and the witnesses are
-## reached only over the Docker-internal network this compose file creates
-## — nginx reaches `keria` by its Compose service name, and KERIA reaches
-## witnesses the same way. See infra/README.md for the full picture.
+## No TLS or reverse-proxy nginx in this stack — this host (the KERI VM)
+## sits behind a shared edge nginx VM on a private network that already
+## terminates TLS for arpradio.media's other subdomains and does
+## hostname-based L7 routing to backend VMs. KERIA's three ports are
+## published to this VM's private IP only (see the `ports` entries below)
+## so that edge VM can proxy_pass straight to them — see infra/nginx/keria.conf
+## for the server blocks to add there, and infra/README.md for the full
+## topology. Witnesses stay unpublished — reached only by KERIA, over the
+## Docker-internal network.
 
 x-healthcheck: &healthcheck
     interval: 2s
@@ -53,41 +52,15 @@ services:
             test: wget --spider http://keria:3902/spec.yaml
             <<: *healthcheck
         restart: unless-stopped
-        # No ports: published — reached only via the reverse proxy (see
-        # infra/nginx/keria.conf) or, for the app server's own calls, over
-        # this same Docker network if it shares one with the Next.js server.
-
-    nginx:
-        image: nginx:alpine
-        depends_on:
-            - keria
-        volumes:
-            - ./nginx/keria.conf:/etc/nginx/conf.d/keria.conf:ro
-            - certbot-conf:/etc/letsencrypt:ro
-            - certbot-www:/var/www/certbot:ro
+        # Published to the KERI VM's private IP only (192.168.0.241) — not
+        # 0.0.0.0 — so these are reachable from the edge nginx VM over the
+        # private network but not from the public internet directly. The
+        # edge VM (infra/nginx/keria.conf) terminates TLS and proxy_passes
+        # here by port: 3901 boot, 3902 mailbox/http, 3903 admin.
         ports:
-            - '80:80'
-            - '443:443'
-        restart: unless-stopped
-        # certbot (below) can't reach into this container to trigger a
-        # reload after a renewal without a docker.sock mount, which isn't
-        # worth the added attack surface here — instead this reloads on its
-        # own schedule regardless of whether a cert actually renewed. A
-        # reload is cheap and drops no in-flight connections; worst case a
-        # renewed cert takes up to 6h to actually take effect.
-        command: /bin/sh -c "while :; do sleep 6h & wait $$!; nginx -s reload; done & nginx -g 'daemon off;'"
-
-    certbot:
-        image: certbot/certbot
-        volumes:
-            - certbot-conf:/etc/letsencrypt
-            - certbot-www:/var/www/certbot
-        # Renewal check twice a day (certbot only actually renews inside the
-        # last 30 days of a cert's life). First-issuance is a one-time
-        # manual step — see infra/nginx/init-letsencrypt.sh — not done here,
-        # since it needs nginx already up and serving the ACME challenge path.
-        entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $$!; done"
-        restart: unless-stopped
+            - '192.168.0.241:3901:3901'
+            - '192.168.0.241:3902:3902'
+            - '192.168.0.241:3903:3903'
 
     witness-1:
         <<: *witness
@@ -151,8 +124,6 @@ services:
 
 volumes:
     keria-data:
-    certbot-conf:
-    certbot-www:
     witness1-data:
     witness2-data:
     witness3-data:

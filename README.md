@@ -117,7 +117,7 @@ a live instance of this exact stack, not assumed:
    witness pools independently duplicity-checking this one). KERIA itself
    has no `ports:` either — see below.
 
-### KERIA's public endpoint (nginx + certbot, in the stack)
+### KERIA's public endpoint (edge VM's nginx, not this stack)
 
 `config/keria.json`'s `curls` (`http://keria:3902/`) is an internal Docker
 hostname over plain HTTP — this is what KERIA advertises as its own
@@ -128,43 +128,30 @@ real public hostname is not exempt) and isn't reachable by anyone outside
 the Docker network regardless.
 
 `config/keria.prod.json` sets `curls` to `https://keria.arpradio.media/`
-instead. `docker-compose.keri.prod.yml` runs `nginx` and `certbot` as part
-of the same stack — nginx terminates TLS for the three `keria*.arpradio.media`
-subdomains (`nginx/keria.conf`, the three server blocks for
-mailbox/boot/admin) and reaches `keria` over the Compose network by service
-name; certbot obtains and renews the certs nginx uses, dropped into a
-shared `certbot-conf` volume. KERIA's raw ports 3901–3903 are never
-published to the host — only nginx's 80/443 are, and only nginx (over the
-Docker-internal network) reaches `keria` directly.
+instead. TLS termination for that and the other two `keria*.arpradio.media`
+subdomains is **not** done by this compose stack — this host (the KERI VM)
+is one of several VMs on the same physical server sitting behind a shared
+edge nginx VM that already terminates TLS for arpradio.media's other
+subdomains (`dandelion.arpradio.media`, etc.) and does hostname-based
+(`server_name`) reverse-proxying to each backend VM over a private network.
+The KERI VM has no direct public reachability; only the edge VM does.
 
-**First run only** — nginx's HTTPS server blocks reference certs that don't
-exist yet, and certbot's webroot challenge needs nginx already up to serve
-it, so bootstrap once before the normal `up -d`:
+So instead, `docker-compose.keri.prod.yml` publishes KERIA's three ports
+directly to this VM's private IP (`192.168.0.241` — see the `ports` entries
+on the `keria` service): `3901` boot, `3902` mailbox/http, `3903` admin.
+`infra/nginx/keria.conf` has the three server blocks to add to the *edge*
+VM's nginx config (not tracked in this repo), each `proxy_pass`ing to one
+of those. TLS is obtained there too, the same way the existing
+`arpnode-mainnet.duckdns.org` / `dandelion.arpradio.media` blocks were —
+`sudo certbot --nginx -d keria.arpradio.media -d keria-boot.arpradio.media -d keria-admin.arpradio.media`
+once the plain-HTTP blocks are in place and DNS for all three points at the
+edge VM (not at the KERI VM — a Namecheap DNS misconfiguration pointing
+these subdomains at Namecheap's own URL-forwarding service instead of any
+real host was the first thing that broke here; verify with `dig` that each
+resolves to the edge VM's actual public IP before running certbot).
 
-```sh
-cd infra
-LETSENCRYPT_EMAIL=you@example.com ./nginx/init-letsencrypt.sh
-docker compose -f docker-compose.keri.prod.yml up -d   # bring up the witnesses too
-```
-
-(`LETSENCRYPT_EMAIL` can instead be set in `.env` — the script picks it up
-from there if not exported. Add `LETSENCRYPT_STAGING=1` for a test run
-against Let's Encrypt's staging environment first, to avoid burning its
-production rate limits while iterating — staging certs are untrusted by
-browsers, so re-run without it once the flow works.)
-
-The script brings up `keria` and `nginx` itself partway through (it needs
-nginx running to serve the ACME challenge); the witnesses aren't part of
-that dependency chain, so the `up -d` after it is what actually starts
-them — it's a no-op for the services the script already started. On
-subsequent deploys (certs already issued), just `docker compose ... up -d`
-brings everything up as-is — certbot's own renewal loop keeps certs current
-from then on, no re-running the bootstrap script required unless the
-`certbot-conf` volume is wiped.
-
-DNS for all three `keria*.arpradio.media` subdomains must already point at
-this host before running the bootstrap script — Let's Encrypt's HTTP-01
-challenge needs to reach nginx on port 80 at each domain to issue the cert.
+Nothing in this repo runs certbot or nginx — that setup lives entirely on
+the edge VM, outside this repo's scope.
 
 Env var split — browser-facing vars must be the public HTTPS URLs;
 server-side vars can stay internal if the Next.js server shares the Docker
@@ -189,11 +176,11 @@ KERIA_BOOT_URL=http://keria:3903
    `witness1-data`..`witness6-data` named volumes on the same
    cadence/retention as the Postgres backup, however that's actually
    implemented outside this repo.
-2. **Hosting.** Something that can run this stack's 9 long-lived containers
-   (keria, nginx, certbot, 6 witnesses) with persistent volume support and
-   ports 80/443 reachable at whatever DNS points `keria*.arpradio.media`
-   here. Not prescribed here since it's undecided — this repo has no
-   existing container deploy to follow the pattern of.
+2. **Hosting.** This stack's 7 long-lived containers (keria, 6 witnesses)
+   run on the KERI VM with persistent volume support; the edge VM handles
+   public reachability (see above) — already decided, not this repo's
+   concern beyond keeping `nginx/keria.conf` in sync with what's actually
+   deployed there.
 
 ## Schema hosting (ACDC / OOBI)
 
