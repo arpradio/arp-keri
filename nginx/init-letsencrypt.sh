@@ -54,11 +54,14 @@ echo "### Downloading recommended TLS parameters ..."
 compose run --rm --entrypoint sh certbot -c '
     set -e
     mkdir -p /etc/letsencrypt
-    if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
-        wget -q -O /etc/letsencrypt/options-ssl-nginx.conf https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf
+    # -s (non-empty), not -f: a prior failed attempt (e.g. a stale URL
+    # 404ing) can leave a zero-byte file behind that -f alone would treat
+    # as "already downloaded" and skip retrying.
+    if [ ! -s /etc/letsencrypt/options-ssl-nginx.conf ]; then
+        wget -q -O /etc/letsencrypt/options-ssl-nginx.conf https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/_internal/plugins/nginx/tls_configs/options-ssl-nginx.conf
     fi
-    if [ ! -f /etc/letsencrypt/ssl-dhparam.pem ]; then
-        wget -q -O /etc/letsencrypt/ssl-dhparam.pem https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem
+    if [ ! -s /etc/letsencrypt/ssl-dhparam.pem ]; then
+        wget -q -O /etc/letsencrypt/ssl-dhparam.pem https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/ssl-dhparams.pem
     fi
 '
 
