@@ -1,6 +1,8 @@
 {
+    "dt": "2026-10-03T04:37:37.000000+00:00",
     "w4": {
-        "curls": ["http://w4.arpradio.media/", "https://w4.arpradio.media/"]
+        "dt": "2026-10-03T04:37:37.000000+00:00",
+        "curls": ["https://witness-4.arpradio.media/"]
     },
     "iurls": []
 }

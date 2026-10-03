@@ -141,11 +141,11 @@ a live instance of this exact stack, not assumed:
 4. **Six separate containers** (`witness-1`..`witness-6`), not six processes
    in one — real restart/failure isolation per witness, each with its own
    volume.
-5. **Witnesses are public, over HTTP(S) only.** Each witness advertises
-   `http://wN.arpradio.media/` and `https://wN.arpradio.media/` as its own
-   location, so verifiers and watchers outside this stack can fetch receipts
-   and KELs from the witnesses directly instead of trusting KERIA alone. See
-   "Witness public endpoints" below. Their TCP ports stay internal.
+5. **Witnesses are public, over HTTPS only.** Each witness advertises
+   `https://witness-N.arpradio.media/` as its own location, so verifiers and
+   watchers outside this stack can fetch receipts and KELs from the
+   witnesses directly instead of trusting KERIA alone. See "Witness public
+   endpoints" below. Their TCP ports stay internal.
 
 ### KERIA's public endpoint (edge VM's nginx, not this stack)
 
@@ -207,42 +207,37 @@ KERIA_BOOT_URL=http://keria:3903
 The witnesses follow the same pattern as KERIA: each one's HTTP port
 (5642 inside its container) is published on `KERIA_BIND_IP` as host port
 `5642`..`5647` for `witness-1`..`witness-6`, and the edge VM proxies
-`w1.arpradio.media`..`w6.arpradio.media` to those (server blocks at the
-bottom of `nginx/keria.conf`).
+`witness-1.arpradio.media`..`witness-6.arpradio.media` to those (server
+blocks at the bottom of `nginx/keria.conf`).
 
-`config/witness-prod/wN.json` sets each witness's `curls` to both
-`http://wN.arpradio.media/` and `https://wN.arpradio.media/`. Both on
-purpose: keripy stores a witness's location per scheme, and these witnesses
-were first incepted advertising `http://witness-N:5642/`. Re-advertising
-`http` with a newer timestamp replaces that internal URL; adding only
-`https` would leave the internal `http` entry in place, and keripy clients
-pick `http` over `https` when both exist. So the edge VM must keep proxying
-these hostnames on port 80 (certbot with `--no-redirect`). That's fine for
-KERI: events and receipts are signed and verified end to end. The old
-`tcp://witness-N:5643/` entries may still be advertised; HTTP clients
-(KERIA, signify) ignore them.
+`config/witness-prod/wN.json` sets each witness's `curls` to
+`https://witness-N.arpradio.media/`. Two keripy details matter here:
 
-KERIA picks up the new locations from the witnesses and then sends receipt
-requests to `wN.arpradio.media`. The KERI VM sits on the same LAN as the
-edge VM, so that only works through the public IP if the router does
-hairpin NAT. Instead, the `keria` service pins those six hostnames to
-`EDGE_PROXY_IP` (the edge VM's LAN IP, required in `.env`) via
-`extra_hosts`, keeping the traffic on the LAN and TLS valid.
+- **Mount path.** `witness start --config-dir /config --config-file wN`
+  reads `/config/keri/cf/wN.json`. Mounted anywhere else (this stack
+  previously used `/config/main/`, copied from the dev `witness demo`
+  layout, which adds a `main` base dir), keripy creates an empty config
+  and the witness runs advertising no location at all, with no error.
+- **`dt`.** keripy only applies a witness's `curls` when its alias block
+  has a `dt`, and it signs the location record with that timestamp. A
+  record that isn't newer than the stored one is ignored, so **bump both
+  `dt` values whenever you change `curls`**.
 
-Rollout:
+Changing the mount needs a recreate, not a restart:
 
-1. DNS: `w1`..`w6.arpradio.media` → the edge VM's public IP (check with `dig`).
-2. Edge VM: add the six server blocks, `sudo nginx -t && sudo systemctl
-   reload nginx`, then run the `certbot --no-redirect` command in
-   `nginx/keria.conf`.
-3. KERI VM: add `EDGE_PROXY_IP=<edge VM LAN IP>` to `.env`, pull, `./deploy.sh`.
-4. Verify each witness advertises its public URL: fetch
-   `https://w1.arpradio.media/oobi/<w1 AID>/controller` and check that the
-   `/loc/scheme` replies in the response carry `w1.arpradio.media`, not
-   `witness-1`.
-5. Have KERIA re-resolve the witness OOBIs (the app's `WITNESS_OOBIS`, which
-   can stay on the internal `http://witness-N:5642/...` URLs) so it picks up
-   the new locations.
+```sh
+sudo docker compose -f docker-compose.keri.prod.yml up -d --force-recreate witness-1 witness-2 witness-3 witness-4 witness-5 witness-6
+curl -s https://witness-1.arpradio.media/oobi | grep -o '"url":"[^"]*"'   # expect "url":"https://witness-1.arpradio.media/"
+```
+
+KERIA then sends receipt requests to `witness-N.arpradio.media`. The KERI
+VM sits on the same LAN as the edge VM, so that only works through the
+public IP if the router does hairpin NAT. Instead, the `keria` service pins
+those six hostnames to `EDGE_PROXY_IP` (the edge VM's LAN IP, required in
+`.env`) via `extra_hosts`, keeping the traffic on the LAN and TLS valid.
+
+The app's `WITNESS_OOBIS` / `NEXT_PUBLIC_WITNESS_OOBIS` can then use the
+public `https://witness-N.arpradio.media/oobi/<AID>/controller` URLs.
 
 ### Still genuinely undecided — operator decisions, not code
 

@@ -1,6 +1,8 @@
 {
+    "dt": "2026-10-03T04:37:37.000000+00:00",
     "w2": {
-        "curls": ["http://w2.arpradio.media/", "https://w2.arpradio.media/"]
+        "dt": "2026-10-03T04:37:37.000000+00:00",
+        "curls": ["https://witness-2.arpradio.media/"]
     },
     "iurls": []
 }
