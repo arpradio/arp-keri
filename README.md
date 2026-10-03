@@ -61,8 +61,39 @@ protection** and must never receipt a real user identity. Use
 
 ```sh
 npx tsx scripts/generate-keri-witness-keys.ts   # prints WITNESS_W1_BRAN..W6_BRAN — add to your prod .env
-docker compose -f infra/docker-compose.keri.prod.yml up -d
+# also add KERIA_BOOT_USERNAME, KERIA_BOOT_PASSWORD and KERIA_PASSCODE to .env (see below)
+./deploy.sh
 ```
+
+`deploy.sh` publishes KERIA's ports on this VM's own IP: `KERIA_BIND_IP`
+from the environment or `.env` if set, otherwise the source IP of the
+default route, otherwise the first address from `hostname -I`. If none can
+be found it leaves `KERIA_BIND_IP` unset and compose publishes on all
+interfaces (`0.0.0.0`). It prints the IP it used; that IP is what the edge
+VM's `proxy_pass` lines in `nginx/keria.conf` must point at.
+
+**Agency keystore passcode.** `KERIA_PASSCODE` encrypts KERIA's own
+keystore in the `keria-data` volume. Compose refuses to start without it.
+Generate it once, before the first `up`, from letters and digits only and
+at least 21 characters (keripy's minimum; same reasoning as the witness
+brans — avoid `-`):
+
+```sh
+tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; echo
+```
+
+It is not stored anywhere by KERIA. Back it up alongside the volume
+snapshots — a lost or changed passcode makes `keria-data` unreadable. Adding
+it to a volume that was first created without one won't work; that volume
+must be recreated.
+
+**Boot auth.** KERIA's boot port (3903) creates new agents. With no
+credentials it accepts anyone; the prod compose file requires
+`KERIA_BOOT_USERNAME` and `KERIA_BOOT_PASSWORD` and refuses to start
+without them (passed to KERIA as `KERIA_EXPERIMENTAL_BOOT_USERNAME` /
+`_PASSWORD`, HTTP Basic auth). There is no default password. Because these
+are secrets, boot calls must come from the Next.js server, not the browser
+— a value in a `NEXT_PUBLIC_*` var is public.
 
 Standalone file, not a `-f base -f prod` overlay on `docker-compose.keri.yml`
 — Compose merges list-type keys (`ports`, `volumes`) across `-f` layers by
@@ -128,7 +159,9 @@ real public hostname is not exempt) and isn't reachable by anyone outside
 the Docker network regardless.
 
 `config/keria.prod.json` sets `curls` to `https://keria.arpradio.media/`
-instead. TLS termination for that and the other two `keria*.arpradio.media`
+instead, and leaves `iurls` empty (the prod witnesses' AIDs only exist once
+they've been incepted from their brans; the app resolves them at runtime
+via `WITNESS_OOBIS`, e.g. `http://witness-1:5642/oobi/<AID>/controller`). TLS termination for that and the other two `keria*.arpradio.media`
 subdomains is **not** done by this compose stack — this host (the KERI VM)
 is one of several VMs on the same physical server sitting behind a shared
 edge nginx VM that already terminates TLS for arpradio.media's other
@@ -137,8 +170,8 @@ subdomains (`dandelion.arpradio.media`, etc.) and does hostname-based
 The KERI VM has no direct public reachability; only the edge VM does.
 
 So instead, `docker-compose.keri.prod.yml` publishes KERIA's three ports
-directly to this VM's private IP (`192.168.0.241` — see the `ports` entries
-on the `keria` service): `3901` boot, `3902` mailbox/http, `3903` admin.
+directly to this VM's own IP (`KERIA_BIND_IP`, detected by `deploy.sh` —
+currently `192.168.0.241`): `3901` admin, `3902` mailbox/http, `3903` boot.
 `infra/nginx/keria.conf` has the three server blocks to add to the *edge*
 VM's nginx config (not tracked in this repo), each `proxy_pass`ing to one
 of those. TLS is obtained there too, the same way the existing
@@ -160,6 +193,8 @@ network (skips the public hop for the server's own KERIA calls):
 ```
 # Browser-facing (signify-identity.ts) — must be public HTTPS:
 NEXT_PUBLIC_KERIA_ADMIN_URL=https://keria-admin.arpradio.media
+# Boot needs KERIA_BOOT_USERNAME/PASSWORD, so do it server-side; a public
+# boot URL is only useful if the browser sends no credentials:
 NEXT_PUBLIC_KERIA_BOOT_URL=https://keria-boot.arpradio.media
 
 # Server-side (signify-service-client.ts) — can stay internal if the Next.js

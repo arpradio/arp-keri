@@ -11,12 +11,19 @@
 ##
 ## Requires, in the environment docker compose reads (.env or the shell):
 ##   WITNESS_W1_BRAN .. WITNESS_W6_BRAN   (scripts/generate-keri-witness-keys.ts)
+##   KERIA_BOOT_USERNAME, KERIA_BOOT_PASSWORD   (HTTP Basic auth on the boot port)
+##   KERIA_PASSCODE   encrypts KERIA's own keystore; 21+ alphanumeric chars.
+##                    Set before first start and never change or lose it —
+##                    the keria-data volume can't be opened without it.
+## Optional:
+##   KERIA_BIND_IP   host IP to publish KERIA's ports on. deploy.sh detects
+##                   it automatically; unset means all interfaces (0.0.0.0).
 ##
 ## No TLS or reverse-proxy nginx in this stack — this host (the KERI VM)
 ## sits behind a shared edge nginx VM on a private network that already
 ## terminates TLS for arpradio.media's other subdomains and does
 ## hostname-based L7 routing to backend VMs. KERIA's three ports are
-## published to this VM's private IP only (see the `ports` entries below)
+## published to this VM's own host IP (KERIA_BIND_IP, see `ports` below)
 ## so that edge VM can proxy_pass straight to them — see infra/nginx/keria.conf
 ## for the server blocks to add there, and infra/README.md for the full
 ## topology. Witnesses stay unpublished — reached only by KERIA, over the
@@ -43,6 +50,12 @@ services:
         image: ${KERIA_IMAGE:-weboftrust/keria}:${KERIA_IMAGE_TAG:-0.4.0}
         environment:
             KERI_AGENT_CORS: 1
+            # Boot (agent creation) is unauthenticated unless BOTH of these are
+            # set. Required, not defaulted: an empty string still switches
+            # KERIA's check on and then rejects every request.
+            KERIA_EXPERIMENTAL_BOOT_USERNAME: ${KERIA_BOOT_USERNAME:?set KERIA_BOOT_USERNAME}
+            KERIA_EXPERIMENTAL_BOOT_PASSWORD: ${KERIA_BOOT_PASSWORD:?set KERIA_BOOT_PASSWORD}
+            KERIA_PASSCODE: ${KERIA_PASSCODE:?set KERIA_PASSCODE}
             <<: *python-env
         volumes:
             - ./config/keria.prod.json:/keria/config/keri/cf/keria.json
@@ -52,15 +65,14 @@ services:
             test: wget --spider http://keria:3902/spec.yaml
             <<: *healthcheck
         restart: unless-stopped
-        # Published to the KERI VM's private IP only (192.168.0.241) — not
-        # 0.0.0.0 — so these are reachable from the edge nginx VM over the
-        # private network but not from the public internet directly. The
-        # edge VM (infra/nginx/keria.conf) terminates TLS and proxy_passes
-        # here by port: 3901 boot, 3902 mailbox/http, 3903 admin.
+        # Published to the host IP in KERIA_BIND_IP (deploy.sh detects the
+        # VM's primary private IP) so the edge nginx VM can reach them over
+        # the private network. Falls back to all interfaces if unset.
+        # KERIA's port roles: 3901 admin, 3902 mailbox/http/OOBI, 3903 boot.
         ports:
-            - '192.168.0.241:3901:3901'
-            - '192.168.0.241:3902:3902'
-            - '192.168.0.241:3903:3903'
+            - '${KERIA_BIND_IP:-0.0.0.0}:3901:3901'
+            - '${KERIA_BIND_IP:-0.0.0.0}:3902:3902'
+            - '${KERIA_BIND_IP:-0.0.0.0}:3903:3903'
 
     witness-1:
         <<: *witness
