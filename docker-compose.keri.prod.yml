@@ -15,19 +15,24 @@
 ##   KERIA_PASSCODE   encrypts KERIA's own keystore; 21+ alphanumeric chars.
 ##                    Set before first start and never change or lose it —
 ##                    the keria-data volume can't be opened without it.
+##   EDGE_PROXY_IP    LAN IP of the edge nginx VM. KERIA reaches the
+##                    witnesses at their public w1..w6.arpradio.media URLs;
+##                    this pins those names to the edge VM so the traffic
+##                    stays on the LAN instead of relying on hairpin NAT.
 ## Optional:
-##   KERIA_BIND_IP   host IP to publish KERIA's ports on. deploy.sh detects
-##                   it automatically; unset means all interfaces (0.0.0.0).
+##   KERIA_BIND_IP   host IP to publish KERIA's and the witnesses' ports on.
+##                   deploy.sh detects it automatically; unset means all
+##                   interfaces (0.0.0.0).
 ##
 ## No TLS or reverse-proxy nginx in this stack — this host (the KERI VM)
 ## sits behind a shared edge nginx VM on a private network that already
 ## terminates TLS for arpradio.media's other subdomains and does
-## hostname-based L7 routing to backend VMs. KERIA's three ports are
-## published to this VM's own host IP (KERIA_BIND_IP, see `ports` below)
-## so that edge VM can proxy_pass straight to them — see infra/nginx/keria.conf
-## for the server blocks to add there, and infra/README.md for the full
-## topology. Witnesses stay unpublished — reached only by KERIA, over the
-## Docker-internal network.
+## hostname-based L7 routing to backend VMs. KERIA's three ports and each
+## witness's HTTP port are published to this VM's own host IP
+## (KERIA_BIND_IP, see `ports` below) so that edge VM can proxy_pass
+## straight to them — see infra/nginx/keria.conf for the server blocks to
+## add there, and infra/README.md for the full topology. Witness TCP ports
+## (5643) stay unpublished; KERIA and signify only use HTTP.
 
 x-healthcheck: &healthcheck
     interval: 2s
@@ -73,6 +78,16 @@ services:
             - '${KERIA_BIND_IP:-0.0.0.0}:3901:3901'
             - '${KERIA_BIND_IP:-0.0.0.0}:3902:3902'
             - '${KERIA_BIND_IP:-0.0.0.0}:3903:3903'
+        # The witnesses advertise public URLs (config/witness-prod/*.json),
+        # and KERIA sends receipt requests to those URLs. Resolve them to the
+        # edge VM's LAN IP so that works without hairpin NAT on the router.
+        extra_hosts:
+            - 'w1.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
+            - 'w2.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
+            - 'w3.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
+            - 'w4.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
+            - 'w5.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
+            - 'w6.arpradio.media:${EDGE_PROXY_IP:?set EDGE_PROXY_IP}'
 
     witness-1:
         <<: *witness
@@ -83,6 +98,9 @@ services:
         volumes:
             - ./config/witness-prod/w1.json:/config/main/w1.json
             - witness1-data:/usr/local/var/keri
+        # HTTP only, on host port 5642; the edge VM proxies w1.arpradio.media here.
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5642:5642'
 
     witness-2:
         <<: *witness
@@ -93,6 +111,8 @@ services:
         volumes:
             - ./config/witness-prod/w2.json:/config/main/w2.json
             - witness2-data:/usr/local/var/keri
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5643:5642'
 
     witness-3:
         <<: *witness
@@ -103,6 +123,8 @@ services:
         volumes:
             - ./config/witness-prod/w3.json:/config/main/w3.json
             - witness3-data:/usr/local/var/keri
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5644:5642'
 
     witness-4:
         <<: *witness
@@ -113,6 +135,8 @@ services:
         volumes:
             - ./config/witness-prod/w4.json:/config/main/w4.json
             - witness4-data:/usr/local/var/keri
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5645:5642'
 
     witness-5:
         <<: *witness
@@ -123,6 +147,8 @@ services:
         volumes:
             - ./config/witness-prod/w5.json:/config/main/w5.json
             - witness5-data:/usr/local/var/keri
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5646:5642'
 
     witness-6:
         <<: *witness
@@ -133,6 +159,8 @@ services:
         volumes:
             - ./config/witness-prod/w6.json:/config/main/w6.json
             - witness6-data:/usr/local/var/keri
+        ports:
+            - '${KERIA_BIND_IP:-0.0.0.0}:5647:5642'
 
 volumes:
     keria-data:

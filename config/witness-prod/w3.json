@@ -1,6 +1,6 @@
 {
     "w3": {
-        "curls": ["tcp://witness-3:5643/", "http://witness-3:5642/"]
+        "curls": ["http://w3.arpradio.media/", "https://w3.arpradio.media/"]
     },
     "iurls": []
 }
