@@ -95,10 +95,13 @@ services:
         healthcheck:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
-        # keripy reads <config-dir>/keri/cf/<config-file>.json; mounting
-        # anywhere else means the witness silently runs with no config.
+        # keripy 1.2.13 reads <config-dir>/keri/cf/main/<config-file>.json
+        # (Configer's default base is "main"). Mounted anywhere else, the
+        # witness silently runs with no config. The config is only applied
+        # when the witness is first incepted, so a mount fix needs a fresh
+        # witness volume.
         volumes:
-            - ./config/witness-prod/w1.json:/config/keri/cf/w1.json
+            - ./config/witness-prod/w1.json:/config/keri/cf/main/w1.json
             - witness1-data:/usr/local/var/keri
         # HTTP only, on host port 5642; the edge VM proxies witness-1.arpradio.media here.
         ports:
@@ -111,7 +114,7 @@ services:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
         volumes:
-            - ./config/witness-prod/w2.json:/config/keri/cf/w2.json
+            - ./config/witness-prod/w2.json:/config/keri/cf/main/w2.json
             - witness2-data:/usr/local/var/keri
         ports:
             - '${KERIA_BIND_IP:-0.0.0.0}:5643:5642'
@@ -123,7 +126,7 @@ services:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
         volumes:
-            - ./config/witness-prod/w3.json:/config/keri/cf/w3.json
+            - ./config/witness-prod/w3.json:/config/keri/cf/main/w3.json
             - witness3-data:/usr/local/var/keri
         ports:
             - '${KERIA_BIND_IP:-0.0.0.0}:5644:5642'
@@ -135,7 +138,7 @@ services:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
         volumes:
-            - ./config/witness-prod/w4.json:/config/keri/cf/w4.json
+            - ./config/witness-prod/w4.json:/config/keri/cf/main/w4.json
             - witness4-data:/usr/local/var/keri
         ports:
             - '${KERIA_BIND_IP:-0.0.0.0}:5645:5642'
@@ -147,7 +150,7 @@ services:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
         volumes:
-            - ./config/witness-prod/w5.json:/config/keri/cf/w5.json
+            - ./config/witness-prod/w5.json:/config/keri/cf/main/w5.json
             - witness5-data:/usr/local/var/keri
         ports:
             - '${KERIA_BIND_IP:-0.0.0.0}:5646:5642'
@@ -159,7 +162,7 @@ services:
             test: wget --spider http://127.0.0.1:5642/oobi
             <<: *healthcheck
         volumes:
-            - ./config/witness-prod/w6.json:/config/keri/cf/w6.json
+            - ./config/witness-prod/w6.json:/config/keri/cf/main/w6.json
             - witness6-data:/usr/local/var/keri
         ports:
             - '${KERIA_BIND_IP:-0.0.0.0}:5647:5642'

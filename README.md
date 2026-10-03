@@ -214,19 +214,27 @@ blocks at the bottom of `nginx/keria.conf`).
 `https://witness-N.arpradio.media/`. Two keripy details matter here:
 
 - **Mount path.** `witness start --config-dir /config --config-file wN`
-  reads `/config/keri/cf/wN.json`. Mounted anywhere else (this stack
-  previously used `/config/main/`, copied from the dev `witness demo`
-  layout, which adds a `main` base dir), keripy creates an empty config
-  and the witness runs advertising no location at all, with no error.
-- **`dt`.** keripy only applies a witness's `curls` when its alias block
-  has a `dt`, and it signs the location record with that timestamp. A
-  record that isn't newer than the stored one is ignored, so **bump both
-  `dt` values whenever you change `curls`**.
+  reads `/config/keri/cf/main/wN.json`: keripy's `Configer` defaults to
+  base `main` and `witness start` doesn't override it (same `.../cf/main/`
+  layout as the dev stack). Mounted anywhere else, keripy creates an empty
+  config and the witness runs advertising no location at all, with no
+  error. Both `/config/main/` and `/config/keri/cf/` were tried and are
+  wrong.
+- **Applied only at inception.** keripy applies a witness's `curls` when it
+  first incepts the witness (`Hab.make` → `reconfigure()`); on restart,
+  existing Habs are loaded without re-reading the config. So changing
+  `curls` (or fixing the mount) on an existing witness needs a fresh
+  witness volume, which gives the witness a **new AID**.
+- **`dt`.** keripy only applies `curls` when the witness's alias block has
+  a `dt`; it signs the location records with that timestamp.
 
-Changing the mount needs a recreate, not a restart:
+Re-incepting the witnesses (dev only — new AIDs; any identifier incepted
+against the old ones loses its witnesses):
 
 ```sh
-sudo docker compose -f docker-compose.keri.prod.yml up -d --force-recreate witness-1 witness-2 witness-3 witness-4 witness-5 witness-6
+sudo docker compose -f docker-compose.keri.prod.yml rm -sf witness-1 witness-2 witness-3 witness-4 witness-5 witness-6
+sudo docker volume ls -q | grep -E 'witness[1-6]-data$' | xargs sudo docker volume rm
+./deploy.sh
 curl -s https://witness-1.arpradio.media/oobi | grep -o '"url":"[^"]*"'   # expect "url":"https://witness-1.arpradio.media/"
 ```
 
